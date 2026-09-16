@@ -1,0 +1,25 @@
+######################################################
+# Prisma SD-WAN — Saved Credentials (OPTIONAL)
+######################################################
+#
+# This file is entirely optional. The app works fully without it — the
+# Connect form on the page lets you type in credentials for any tenant,
+# per browser session, nothing saved.
+#
+# If you want a persistent connection instead (skip typing credentials
+# every time), copy this file to "prismasase_settings.py" in the same
+# directory as app.py and fill in your Service Account values below.
+# When present, the app shows a "Quick Connect" button that uses these
+# credentials — they are read server-side only and never sent back to
+# the browser.
+#
+# IMPORTANT: prismasase_settings.py contains a plaintext secret. Never
+# commit it to version control (see .gitignore) and restrict its file
+# permissions (chmod 600) if you enable this.
+#
+######################################################
+
+PRISMASASE_TENANT_NAME   = "My Tenant"
+PRISMASASE_TSG_ID        = "your-tsg-id"
+PRISMASASE_CLIENT_ID     = "your-service-account@<tsg>.iam.panserviceaccount.com"
+PRISMASASE_CLIENT_SECRET = "your-client-secret"

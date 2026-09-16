@@ -1,0 +1,2 @@
+flask>=3.0
+prisma_sase>=6.8.1b1

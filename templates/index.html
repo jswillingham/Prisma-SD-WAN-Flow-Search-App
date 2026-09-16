@@ -1,0 +1,1168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Prisma SD-WAN Flow Search</title>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  [x-cloak] { display: none !important; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    background: #f0f2f5;
+    color: #1a1a2e;
+    min-height: 100vh;
+  }
+
+  /* Header */
+  header {
+    background: #004C97;
+    color: white;
+    padding: 16px 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.25);
+  }
+  header .title { display: flex; align-items: center; gap: 14px; }
+  header h1 { font-size: 18px; font-weight: 600; letter-spacing: .01em; }
+  header .sub { font-size: 12px; opacity: .7; margin-left: 8px; }
+  header .status { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+
+  .auth-dot { width: 10px; height: 10px; border-radius: 50%; background: #6b7280; flex-shrink: 0; transition: background .3s; }
+  .auth-dot.ok      { background: #22c55e; box-shadow: 0 0 6px #22c55e99; }
+  .auth-dot.fail    { background: #ef4444; box-shadow: 0 0 6px #ef444499; }
+  .auth-dot.loading { background: #f59e0b; animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  main { max-width: 98vw; margin: 0 auto; padding: 28px 24px; }
+
+  .card { background: white; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,.08); padding: 24px; margin-bottom: 20px; }
+  .card-title { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: #6b7280; margin-bottom: 16px; }
+
+  .grid { display: grid; gap: 16px; }
+  .grid-2 { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  .grid-3 { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+
+  label { display: block; font-size: 13px; font-weight: 500; color: #374151; margin-bottom: 4px; }
+  input[type=text], input[type=password], input[type=datetime-local], select {
+    width: 100%; border: 1px solid #d1d5db; border-radius: 6px; padding: 8px 10px;
+    font-size: 13px; background: white; color: #1a1a2e;
+  }
+  input:focus, select:focus { outline: none; border-color: #004C97; box-shadow: 0 0 0 2px #004c9733; }
+
+  .btn { display: inline-flex; align-items: center; gap: 6px; border: none; border-radius: 6px;
+    padding: 9px 18px; font-size: 13px; font-weight: 600; cursor: pointer; transition: opacity .15s, transform .1s; }
+  .btn:active { transform: scale(.97); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .btn-primary { background: #004C97; color: white; }
+  .btn-primary:hover:not(:disabled) { background: #003a73; }
+  .btn-accent { background: #FA582E; color: white; }
+  .btn-accent:hover:not(:disabled) { opacity: .9; }
+  .btn-ghost { background: #f3f4f6; color: #374151; }
+  .btn-ghost:hover:not(:disabled) { background: #e5e7eb; }
+  .btn-sm { padding: 5px 10px; font-size: 12px; }
+  .spinner { width: 13px; height: 13px; border-radius: 50%; border: 2px solid rgba(255,255,255,.4);
+    border-top-color: white; animation: spin .7s linear infinite; flex-shrink: 0; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .progress-panel { margin-top: 12px; }
+  .progress-summary { font-size: 12px; color: #6b7280; margin-bottom: 6px; }
+  .progress-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .progress-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px;
+    border-radius: 999px; font-size: 11px; background: #f3f4f6; color: #6b7280; }
+  .progress-chip.done { background: #dcfce7; color: #166534; }
+  .progress-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: #9ca3af; flex-shrink: 0; }
+  .progress-chip.done .dot { background: #22c55e; }
+  .progress-chip.pending .dot { animation: pulse 1.2s ease-in-out infinite; }
+
+  .error-banner { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 13px; }
+  .warn-banner { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 13px; }
+
+  /* Dropdowns */
+  .dropdown { position: relative; }
+  .dropdown-trigger {
+    width: 100%; border: 1px solid #d1d5db; border-radius: 6px; padding: 8px 10px;
+    font-size: 13px; cursor: pointer; background: white; display: flex; align-items: center;
+    justify-content: space-between; color: #374151;
+  }
+  .dropdown-trigger.loading { opacity: .6; cursor: default; }
+  .dropdown-trigger .placeholder { color: #9ca3af; }
+  .dropdown-panel {
+    position: absolute; z-index: 50; margin-top: 4px; width: 100%; background: white;
+    border: 1px solid #d1d5db; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.12);
+    display: flex; flex-direction: column; max-height: 280px;
+  }
+  .dropdown-search { padding: 8px; border-bottom: 1px solid #e5e7eb; }
+  .dropdown-search input { padding: 6px 8px; }
+  .dropdown-list { overflow-y: auto; flex: 1; min-height: 0; }
+  .dropdown-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; cursor: pointer; }
+  .dropdown-item:hover { background: #f9fafb; }
+  .dropdown-empty { padding: 10px; font-size: 13px; color: #9ca3af; }
+  .dropdown-footer { padding: 8px 10px; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; }
+  .link-btn { background: none; border: none; color: #004C97; font-size: 12px; cursor: pointer; padding: 0; }
+  .link-btn:hover { text-decoration: underline; }
+
+  .tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .tag { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 11px; background: #dbeafe; color: #1e40af; }
+  .tag button { background: none; border: none; cursor: pointer; color: inherit; font-size: 12px; line-height: 1; }
+
+  .quick-btn { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: #f3f4f6; color: #004C97; border: none; cursor: pointer; margin-left: 4px; }
+  .quick-btn:hover { background: #dbeafe; }
+
+  /* Tabs */
+  .tab-strip { display: flex; overflow-x: auto; border-bottom: 1px solid #e5e7eb; }
+  .tab-strip button { flex-shrink: 0; padding: 10px 16px; font-size: 13px; font-weight: 500; background: none;
+    border: none; border-bottom: 2px solid transparent; color: #6b7280; cursor: pointer; white-space: nowrap; }
+  .tab-strip button.active { color: #004C97; border-bottom-color: #FA582E; }
+  .badge { margin-left: 6px; border-radius: 999px; padding: 1px 7px; font-size: 11px; background: #f3f4f6; color: #6b7280; }
+  .badge.active { background: #dbeafe; color: #1e40af; }
+  .badge.error { background: #fee2e2; color: #b91c1c; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th { text-align: left; padding: 10px 12px; font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .04em; color: white; background: #004C97; border-bottom: 1px solid #003a73; cursor: pointer; white-space: nowrap; }
+  thead th:hover { background: #003a73; }
+  tbody td { padding: 8px 12px; border-bottom: 1px solid #f3f4f6; color: #1a1a2e; }
+  tbody tr:hover { background: #f9fafb; }
+  .mono { font-family: ui-monospace, SFMono-Regular, monospace; }
+  .app-cell { max-width: 150px; }
+  .truncate-cell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; }
+  .domain-row { display: flex; align-items: center; gap: 3px; }
+  .domain-row .copy-btn { display: none; flex-shrink: 0; background: none; border: none; cursor: pointer; color: #9ca3af;
+    font-size: 12px; padding: 1px 3px; border-radius: 3px; line-height: 1; transition: color .15s, background .15s; }
+  .domain-row:hover .copy-btn { display: inline-flex; color: #004C97; }
+  .domain-row .copy-btn:hover { background: #dbeafe; }
+  .pill { display: inline-flex; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 500; }
+  .pill-blue { background: #dbeafe; color: #1e40af; }
+  .pill-green { background: #dcfce7; color: #166534; }
+  .pill-yellow { background: #fef9c3; color: #854d0e; }
+  .pill-red { background: #fee2e2; color: #b91c1c; }
+  .pill-orange { background: #ffedd5; color: #9a3412; }
+  .pill-pink { background: #fce7f3; color: #9d174d; }
+  .pill-gray { background: #f3f4f6; color: #374151; }
+
+  .empty-state { text-align: center; padding: 48px 16px; color: #6b7280; }
+
+  .results-toolbar { padding: 12px 16px; border-bottom: 1px solid #e5e7eb; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+  .filter-group { display: flex; align-items: center; gap: 8px; }
+  .seg { display: inline-flex; border-radius: 6px; overflow: hidden; border: 1px solid #d1d5db; }
+  .seg button { padding: 6px 10px; font-size: 12px; background: white; border: none; cursor: pointer; color: #374151; border-left: 1px solid #d1d5db; }
+  .seg button:first-child { border-left: none; }
+  .seg button.active { background: #004C97; color: white; }
+
+  .pagination { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-top: 1px solid #e5e7eb; background: #f9fafb; }
+  .pagination .pager { display: flex; gap: 4px; align-items: center; }
+  .pagination button { border: none; background: none; padding: 5px 9px; border-radius: 5px; font-size: 13px; color: #374151; cursor: pointer; }
+  .pagination button:hover:not(:disabled) { background: #e5e7eb; }
+  .pagination button:disabled { opacity: .4; cursor: not-allowed; }
+
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 16px; }
+  .modal { background: white; border-radius: 10px; max-width: 640px; width: 100%; max-height: 80vh; display: flex; flex-direction: column; }
+  .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid #e5e7eb; }
+  .modal-body { padding: 20px; overflow: auto; }
+  .modal-body pre { font-size: 12px; font-family: ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; }
+
+  .conn-form { max-width: 420px; margin: 40px auto; }
+  .conn-form .card-title { text-align: center; font-size: 15px; text-transform: none; letter-spacing: 0; color: #1a1a2e; margin-bottom: 20px; }
+  .field { margin-bottom: 14px; }
+</style>
+</head>
+<body x-data="flowSearch()" x-init="init()">
+
+  <header>
+    <div class="title">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+      </svg>
+      <h1>Prisma SD-WAN Flow Search</h1>
+      <span class="sub">standalone</span>
+    </div>
+    <div class="status" x-show="connected" x-cloak>
+      <span class="auth-dot" :class="connecting ? 'loading' : 'ok'"></span>
+      <span>
+        <strong x-show="tenantName" x-text="tenantName"></strong>
+        <span x-show="tenantName"> · </span>
+        <span>TSG <span x-text="tsgId"></span></span>
+      </span>
+      <button type="button" class="btn btn-ghost btn-sm" @click="disconnect()" :disabled="disconnecting" x-text="disconnecting ? 'Disconnecting…' : 'Disconnect'"></button>
+    </div>
+  </header>
+
+  <main>
+    <!-- Connect Form -->
+    <template x-if="!connected">
+      <div class="conn-form">
+        <template x-if="hasSavedTenant">
+          <div class="card">
+            <div class="card-title">Saved Tenant</div>
+            <p style="font-size:13px;color:#374151;margin-bottom:12px">
+              A persistent connection is configured for <strong x-text="savedTenantLabel"></strong> (via <code>prismasase_settings.py</code>).
+            </p>
+            <button type="button" class="btn btn-accent" style="width:100%;justify-content:center" @click="connectSaved()" :disabled="connectingSaved">
+              <span x-text="connectingSaved ? 'Connecting…' : 'Quick Connect — ' + savedTenantLabel"></span>
+            </button>
+          </div>
+        </template>
+
+        <div class="card">
+          <div class="card-title">Connect to Prisma SD-WAN</div>
+          <template x-if="!hasSavedTenant">
+            <p style="font-size:12px;color:#6b7280;margin-bottom:12px;line-height:1.5">
+              This connects for the current session only — nothing is saved. Want a persistent connection
+              you don't have to re-enter each time? Copy <code>prismasase_settings.py.example</code> to
+              <code>prismasase_settings.py</code> in the app directory and fill in your Service Account values;
+              a Quick Connect option will appear here automatically.
+            </p>
+          </template>
+          <template x-if="connectError">
+            <div class="error-banner" x-text="connectError"></div>
+          </template>
+          <form @submit.prevent="connect()">
+            <div class="field">
+              <label for="tenant_name">Tenant Name (optional — auto-detected if left blank)</label>
+              <input type="text" id="tenant_name" x-model="tenantName" placeholder="e.g., Acme Corp" autocomplete="off">
+            </div>
+            <div class="field">
+              <label for="tsg_id">TSG ID</label>
+              <input type="text" id="tsg_id" x-model="tsgId" required autocomplete="off">
+            </div>
+            <div class="field">
+              <label for="client_id">Client ID</label>
+              <input type="text" id="client_id" x-model="clientId" required autocomplete="off">
+            </div>
+            <div class="field">
+              <label for="client_secret">Client Secret</label>
+              <input type="password" id="client_secret" x-model="clientSecret" required autocomplete="off">
+            </div>
+            <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center" :disabled="connecting">
+              <span x-text="connecting ? 'Connecting…' : 'Connect'"></span>
+            </button>
+          </form>
+        </div>
+      </div>
+    </template>
+
+    <!-- Main App -->
+    <template x-if="connected">
+      <div>
+        <template x-if="searchError">
+          <div class="error-banner" x-text="searchError"></div>
+        </template>
+        <template x-if="policiesError">
+          <div class="warn-banner" x-text="policiesError"></div>
+        </template>
+
+        <!-- Search Form -->
+        <div class="card">
+          <div class="card-title">Search Parameters</div>
+          <div class="grid grid-2" style="margin-bottom:16px">
+            <!-- Sites -->
+            <div class="dropdown">
+              <label>Sites <span style="color:#ef4444">*</span></label>
+              <div class="dropdown-trigger" :class="!sitesReady ? 'loading' : ''"
+                   @click="if (sitesReady) siteDropdownOpen = !siteDropdownOpen">
+                <span class="placeholder" x-show="!sitesReady">Loading sites…</span>
+                <span class="placeholder" x-show="sitesReady && selectedSites.length === 0">Select at least one site…</span>
+                <span x-show="selectedSites.length > 0" x-text="selectedSites.length + ' selected'"></span>
+                <span>▾</span>
+              </div>
+              <div class="dropdown-panel" x-cloak x-show="siteDropdownOpen" @click.outside="siteDropdownOpen = false">
+                <div class="dropdown-search">
+                  <input type="text" x-model="siteSearch" @click.stop placeholder="Search sites...">
+                </div>
+                <div class="dropdown-list">
+                  <template x-for="site in filteredSites" :key="site.id">
+                    <label class="dropdown-item" @click.stop>
+                      <input type="checkbox" :checked="selectedSites.includes(site.id)" @change="toggleSite(site.id)">
+                      <span x-text="site.name"></span>
+                    </label>
+                  </template>
+                  <div class="dropdown-empty" x-show="filteredSites.length === 0">No sites match your search</div>
+                </div>
+                <div class="dropdown-footer" x-show="selectedSites.length > 0">
+                  <button type="button" class="link-btn" @click.stop="selectedSites = []; siteSearch = ''">Clear selection</button>
+                </div>
+              </div>
+              <div class="tags" x-show="selectedSites.length > 0">
+                <template x-for="siteId in selectedSites" :key="siteId">
+                  <span class="tag">
+                    <span x-text="getSiteName(siteId)"></span>
+                    <button type="button" @click="toggleSite(siteId)">✕</button>
+                  </span>
+                </template>
+              </div>
+              <span x-cloak x-show="siteValidationError" style="color:#ef4444;font-size:12px;display:block;margin-top:4px">Please select at least one site</span>
+            </div>
+
+            <!-- Time Range -->
+            <div>
+              <label>
+                Time Range
+                <button type="button" class="quick-btn" @click="setLastMinutes(5)">5m</button>
+                <button type="button" class="quick-btn" @click="setLastMinutes(15)">15m</button>
+                <button type="button" class="quick-btn" @click="setLastHour()">1h</button>
+                <button type="button" class="quick-btn" @click="setLast24Hours()">24h</button>
+              </label>
+              <div style="display:flex;align-items:center;gap:8px">
+                <input type="datetime-local" x-model="startTime" required>
+                <span style="color:#9ca3af">to</span>
+                <input type="datetime-local" x-model="endTime" required>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid grid-3">
+            <!-- IP Filter -->
+            <div>
+              <label>IP Address (optional)</label>
+              <div style="display:flex;gap:8px">
+                <input type="text" x-model="ipAddress" placeholder="e.g., 192.168.1.100" style="flex:1">
+                <select x-model="ipMode" style="width:auto">
+                  <option value="source">Source</option>
+                  <option value="dest">Destination</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Apps -->
+            <div class="dropdown">
+              <label>Application (optional)</label>
+              <div class="dropdown-trigger" :class="formDataLoading ? 'loading' : ''"
+                   @click="if (!formDataLoading) appDropdownOpen = !appDropdownOpen">
+                <span class="placeholder" x-show="formDataLoading">Loading applications…</span>
+                <span class="placeholder" x-show="!formDataLoading && selectedApps.length === 0">All applications</span>
+                <span x-show="selectedApps.length > 0" x-text="selectedApps.length + ' selected'"></span>
+                <span>▾</span>
+              </div>
+              <div class="dropdown-panel" x-cloak x-show="appDropdownOpen" @click.outside="appDropdownOpen = false">
+                <template x-if="appDropdownOpen">
+                  <div style="display:flex;flex-direction:column;flex:1;min-height:0">
+                    <div class="dropdown-search">
+                      <input type="text" x-model="appSearch" @click.stop placeholder="Search apps...">
+                    </div>
+                    <div class="dropdown-list">
+                      <template x-for="app in filteredApps()" :key="app.id">
+                        <label class="dropdown-item" @click.stop>
+                          <input type="checkbox" :checked="selectedApps.includes(app.id)" @change="toggleApp(app.id)">
+                          <span x-text="app.name"></span>
+                        </label>
+                      </template>
+                      <div class="dropdown-empty" x-show="filteredApps().length === 0">No apps match your search</div>
+                    </div>
+                    <div class="dropdown-footer">
+                      <span style="font-size:11px;color:#9ca3af" x-text="filteredApps().length + ' shown'"></span>
+                      <button type="button" class="link-btn" x-show="selectedApps.length > 0" @click.stop="selectedApps = []; appSearch = ''">Clear selection</button>
+                    </div>
+                  </div>
+                </template>
+              </div>
+              <div class="tags" x-show="selectedApps.length > 0">
+                <template x-for="appId in selectedApps" :key="appId">
+                  <span class="tag">
+                    <span x-text="getAppName(appId)"></span>
+                    <button type="button" @click="toggleApp(appId)">✕</button>
+                  </span>
+                </template>
+              </div>
+            </div>
+
+            <!-- Page Size -->
+            <div>
+              <label>Results</label>
+              <select x-model="resultsPerPage">
+                <option value="25">25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+                <option value="250">250</option>
+                <option value="500">500</option>
+                <option value="1000">1000</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="margin-top:16px">
+            <button type="button" class="btn btn-primary" @click="submitSearch()" :disabled="searching">
+              <span x-show="searching" class="spinner"></span>
+              <span x-text="searching ? 'Searching…' : 'Search Flows'"></span>
+            </button>
+
+            <div class="progress-panel" x-show="searchProgress.total > 0" x-cloak>
+              <div class="progress-summary">
+                <span x-text="searchProgress.completedIds.length"></span> of <span x-text="searchProgress.total"></span> sites complete
+              </div>
+              <div class="progress-chips">
+                <template x-for="siteId in selectedSites" :key="siteId">
+                  <span class="progress-chip" :class="searchProgress.completedIds.includes(siteId) ? 'done' : 'pending'">
+                    <span class="dot"></span>
+                    <span x-text="getSiteName(siteId)"></span>
+                  </span>
+                </template>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Results -->
+        <template x-if="searchPerformed">
+          <div>
+            <template x-if="Object.keys(siteErrors).length > 0 && Object.keys(siteErrors).length < selectedSiteIds.length">
+              <div class="warn-banner">
+                <strong>Some sites failed to load:</strong>
+                <ul style="margin:6px 0 0 18px">
+                  <template x-for="(err, siteId) in siteErrors" :key="siteId">
+                    <li><span x-text="getSiteTabName(siteId)"></span>: <span x-text="err"></span></li>
+                  </template>
+                </ul>
+              </div>
+            </template>
+
+            <div class="card" style="padding:0;overflow:hidden">
+              <div class="results-toolbar">
+                <div style="display:flex;align-items:center;gap:10px">
+                  <strong>Results</strong>
+                  <template x-if="filteredFlows.length > 0">
+                    <div style="display:flex;gap:4px">
+                      <button type="button" class="btn btn-ghost btn-sm" @click="downloadCSV()">Download CSV</button>
+                      <button type="button" class="btn btn-ghost btn-sm" @click="showApiQuery()">View API Query</button>
+                    </div>
+                  </template>
+                </div>
+                <span style="color:#6b7280;font-size:13px"><span x-text="filteredFlows.length"></span> flow<span x-show="filteredFlows.length !== 1">s</span></span>
+              </div>
+
+              <div class="tab-strip" x-show="selectedSiteIds.length > 0">
+                <button type="button" @click="setActiveTab('all')" :class="activeTab === 'all' ? 'active' : ''">
+                  Selected Sites
+                  <span class="badge" :class="activeTab === 'all' ? 'active' : ''" x-text="getAllFlowsCount()"></span>
+                </button>
+                <template x-for="siteId in selectedSiteIds" :key="siteId">
+                  <button type="button" @click="setActiveTab(siteId)" :class="activeTab === siteId ? 'active' : ''">
+                    <span x-text="getSiteTabName(siteId)"></span>
+                    <span class="badge" :class="activeTab === siteId ? 'active' : (siteErrors[siteId] ? 'error' : '')"
+                          x-text="siteErrors[siteId] ? '!' : getSiteFlowsCount(siteId)"></span>
+                  </button>
+                </template>
+              </div>
+
+              <template x-if="truncatedSites.length > 0">
+                <div class="warn-banner" style="margin:0;border-radius:0;border-left:none;border-right:none">
+                  Results truncated:
+                  <template x-for="(info, idx) in truncatedSites" :key="info.siteId">
+                    <span><span x-show="idx > 0">, </span><strong x-text="info.siteName"></strong> showing <span x-text="info.returned"></span> of <span x-text="info.total"></span></span>
+                  </template>
+                </div>
+              </template>
+
+              <div class="results-toolbar">
+                <div class="filter-group">
+                  <input type="text" x-model.debounce.200ms="currentTabState.ipFilter" placeholder="Filter by IP..." style="width:180px">
+                  <div class="seg">
+                    <button type="button" :class="currentTabState.ipFilterMode === 'or' ? 'active' : ''" @click="currentTabState.ipFilterMode = 'or'">Src or Dst</button>
+                    <button type="button" :class="currentTabState.ipFilterMode === 'src' ? 'active' : ''" @click="currentTabState.ipFilterMode = 'src'">Source</button>
+                    <button type="button" :class="currentTabState.ipFilterMode === 'dst' ? 'active' : ''" @click="currentTabState.ipFilterMode = 'dst'">Dest</button>
+                  </div>
+                </div>
+              </div>
+
+              <template x-if="activeTab !== 'all' && siteErrors[activeTab]">
+                <div class="empty-state">
+                  <p style="font-weight:600;color:#1a1a2e">Failed to load flows</p>
+                  <p style="color:#ef4444;margin-top:6px" x-text="siteErrors[activeTab]"></p>
+                </div>
+              </template>
+
+              <template x-if="activeTab === 'all' || !siteErrors[activeTab]">
+                <div>
+                  <template x-if="activeFlows.length === 0">
+                    <div class="empty-state">
+                      <p style="font-weight:600;color:#1a1a2e">No flows found</p>
+                      <p style="margin-top:6px">No flows match your search criteria for the selected time range.</p>
+                    </div>
+                  </template>
+
+                  <template x-if="activeFlows.length > 0">
+                    <div style="overflow-x:auto">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th x-show="activeTab === 'all'">Site</th>
+                            <th @click="sortBy('flow_start_time_ms')">Time</th>
+                            <th @click="sortBy('source_ip')">Source IP</th>
+                            <th @click="sortBy('source_port')">Src Port</th>
+                            <th @click="sortBy('destination_ip')">Dest IP</th>
+                            <th @click="sortBy('destination_port')">Dst Port</th>
+                            <th @click="sortBy('protocol')">Proto</th>
+                            <th @click="sortBy('app_id')">App</th>
+                            <th>Policy <span x-show="policiesLoading" style="font-weight:normal;text-transform:none;opacity:.75">(loading…)</span></th>
+                            <th @click="sortBy('flow_direction')">Direction</th>
+                            <th @click="sortBy('path_type')">Path</th>
+                            <th>
+                              <span @click.stop="sortBy('average_rtt')">RTT</span> / <span @click.stop="sortBy('average_srt')">SRT</span> (avg)
+                            </th>
+                            <th>Bytes (C2S/S2C)</th>
+                            <th>Packets</th>
+                            <th @click="sortBy('flow_action')">Action</th>
+                            <th>Security</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <template x-for="flow in paginatedFlows" :key="flow.flow_start_time_ms + '-' + flow.source_ip + '-' + flow.destination_ip + '-' + flow.source_port + '-' + (flow._site_id || '')">
+                            <tr>
+                              <td x-show="activeTab === 'all'" x-text="flow._site_name || '-'"></td>
+                              <td x-text="formatTime(flow.flow_start_time_ms)"></td>
+                              <td class="mono">
+                                <div x-text="flow.source_ip || '-'"></div>
+                                <div style="font-size:10px;color:#9ca3af" x-text="flow.user_name || 'unknown'"></div>
+                              </td>
+                              <td x-text="flow.source_port || '-'"></td>
+                              <td class="mono" x-text="flow.destination_ip || '-'"></td>
+                              <td x-text="flow.destination_port || '-'"></td>
+                              <td><span class="pill" :class="getProtocolClass(flow.protocol)" x-text="getProtocolName(flow.protocol)"></span></td>
+                              <td class="app-cell">
+                                <div class="truncate-cell" x-text="getAppName(flow.app_id)" :title="getAppName(flow.app_id)"></div>
+                                <div x-show="flow.unknown_domain" class="domain-row">
+                                  <span class="truncate-cell" style="font-size:10px;color:#9ca3af" x-text="'(' + (flow.unknown_domain || '') + ')'" :title="flow.unknown_domain"></span>
+                                  <button type="button" class="copy-btn" @click.stop="copyToClipboard(flow.unknown_domain)" title="Copy domain">⧉</button>
+                                </div>
+                              </td>
+                              <td style="font-size:11px;line-height:1.5;white-space:nowrap">
+                                <div><span style="color:#9ca3af">P:</span> <span style="color:#2563eb" x-text="getNetworkPolicyName(flow.network_policy_id)"></span></div>
+                                <div><span style="color:#9ca3af">Q:</span> <span style="color:#d97706" x-text="getPriorityPolicyName(flow.priority_policy_id)"></span></div>
+                                <div><span style="color:#9ca3af">S:</span> <span style="color:#9333ea" x-text="getSecurityPolicyName(flow)"></span></div>
+                              </td>
+                              <td x-text="formatDirection(flow.flow_direction)"></td>
+                              <td><span class="pill" :class="getPathClass(flow.path_id)" x-text="getPathName(flow.path_id) || flow.path_type || '-'"></span></td>
+                              <td class="text-xs" x-text="formatMs(flow.average_rtt) + ' / ' + formatMs(flow.average_srt)"></td>
+                              <td><span x-text="formatBytes(flow.bytes_c2s || 0)"></span> / <span x-text="formatBytes(flow.bytes_s2c || 0)"></span></td>
+                              <td><span x-text="(flow.packets_c2s || 0)"></span> / <span x-text="(flow.packets_s2c || 0)"></span></td>
+                              <td x-text="flow.flow_action || '-'"></td>
+                              <td>
+                                <template x-if="getSecurityActions(flow).length > 0">
+                                  <span class="pill" :class="getSecurityActions(flow).includes('allow') ? 'pill-green' : 'pill-red'" x-text="getSecurityActions(flow).join(', ')"></span>
+                                </template>
+                                <template x-if="getSecurityActions(flow).length === 0">
+                                  <span style="color:#9ca3af">-</span>
+                                </template>
+                              </td>
+                            </tr>
+                          </template>
+                        </tbody>
+                      </table>
+                    </div>
+                  </template>
+
+                  <div class="pagination" x-show="totalPages > 1">
+                    <div style="color:#6b7280">
+                      Showing <span x-text="startIndex + 1"></span> to <span x-text="Math.min(endIndex, filteredFlows.length)"></span> of <span x-text="filteredFlows.length"></span> flows
+                    </div>
+                    <div class="pager">
+                      <button @click="currentTabState.currentPage = 1" :disabled="currentTabState.currentPage === 1">First</button>
+                      <button @click="currentTabState.currentPage--" :disabled="currentTabState.currentPage === 1">‹</button>
+                      <span style="padding:0 8px">Page <span x-text="currentTabState.currentPage"></span> of <span x-text="totalPages"></span></span>
+                      <button @click="currentTabState.currentPage++" :disabled="currentTabState.currentPage === totalPages">›</button>
+                      <button @click="currentTabState.currentPage = totalPages" :disabled="currentTabState.currentPage === totalPages">Last</button>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
+      </div>
+    </template>
+
+    <!-- API Query Modal -->
+    <div class="modal-overlay" x-cloak x-show="apiQueryModal" @keydown.escape.window="apiQueryModal = false">
+      <div class="modal" @click.stop>
+        <div class="modal-head">
+          <strong>API Query Payload</strong>
+          <div style="display:flex;gap:8px">
+            <button type="button" class="btn btn-ghost btn-sm" @click="copyToClipboard(apiQueryJson)">Copy</button>
+            <button type="button" class="btn btn-ghost btn-sm" @click="downloadApiQueryJson()">Download</button>
+            <button type="button" class="btn btn-ghost btn-sm" @click="apiQueryModal = false">✕</button>
+          </div>
+        </div>
+        <div class="modal-body"><pre x-text="apiQueryJson"></pre></div>
+      </div>
+    </div>
+  </main>
+
+<script>
+function flowSearch() {
+  return {
+    connected: {{ 'true' if connected else 'false' }},
+    tsgId: {{ tsg_id|tojson }},
+    tenantName: {{ tenant_name|tojson }},
+    clientId: '',
+    clientSecret: '',
+    connecting: false,
+    connectingSaved: false,
+    disconnecting: false,
+    connectError: '',
+    hasSavedTenant: {{ 'true' if has_saved_tenant else 'false' }},
+    savedTenantLabel: {{ saved_tenant_label|tojson }},
+
+    sites: [],
+    appdefs: [],
+    appMap: {},
+    formDataLoading: false,
+    sitesReady: false,
+    topologyMap: {},
+    networkPolicyMap: {},
+    priorityPolicyMap: {},
+    securityPolicyMap: {},
+    policiesLoading: false,
+    policiesError: '',
+
+    siteSearch: '', siteDropdownOpen: false, selectedSites: [], siteValidationError: false,
+    appSearch: '', appDropdownOpen: false, selectedApps: [],
+
+    startTime: '', endTime: '',
+    ipAddress: '', ipMode: 'source',
+    resultsPerPage: 100,
+
+    searching: false, searchError: '', searchPerformed: false,
+    searchProgress: { completedIds: [], total: 0 },
+    flowsBySite: {}, siteErrors: {}, selectedSiteIds: [],
+    activeTab: 'all', tabStates: {},
+
+    apiQueryModal: false, apiQueryJson: '',
+    lastSearchPayload: {},
+
+    init() {
+      this.setLastHour();
+      if (this.connected) {
+        this.loadFormData();
+        this.loadTopology();
+        this.loadPolicies();
+      }
+    },
+
+    async connect() {
+      this.connecting = true;
+      this.connectError = '';
+      try {
+        const res = await fetch('/api/connect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tsg_id: this.tsgId, client_id: this.clientId, client_secret: this.clientSecret, tenant_name: this.tenantName })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          this.connectError = data.error || 'Connection failed.';
+          return;
+        }
+        this.clientSecret = '';
+        this.tenantName = data.tenant_name || this.tenantName;
+        this.connected = true;
+        await Promise.all([this.loadFormData(), this.loadTopology(), this.loadPolicies()]);
+      } catch (e) {
+        this.connectError = 'Network error: ' + e;
+      } finally {
+        this.connecting = false;
+      }
+    },
+
+    async connectSaved() {
+      this.connectingSaved = true;
+      this.connectError = '';
+      try {
+        const res = await fetch('/api/connect-saved', { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) {
+          this.connectError = data.error || 'Connection failed.';
+          return;
+        }
+        this.tsgId = data.tsg_id || '';
+        this.tenantName = data.tenant_name || '';
+        this.connected = true;
+        await Promise.all([this.loadFormData(), this.loadTopology(), this.loadPolicies()]);
+      } catch (e) {
+        this.connectError = 'Network error: ' + e;
+      } finally {
+        this.connectingSaved = false;
+      }
+    },
+
+    async disconnect() {
+      this.disconnecting = true;
+      try {
+        await fetch('/api/disconnect', { method: 'POST' });
+      } catch (e) { /* ignore */ }
+      this.connected = false;
+      this.clientSecret = '';
+      this.tenantName = '';
+      this.sites = []; this.appdefs = []; this.appMap = {};
+      this.selectedSites = []; this.selectedApps = [];
+      this.flowsBySite = {}; this.siteErrors = {}; this.selectedSiteIds = [];
+      this.searchPerformed = false;
+      this.disconnecting = false;
+    },
+
+    handleSessionExpired(data) {
+      if (data && data.error && data.error.toLowerCase().includes('session expired')) {
+        this.connected = false;
+        this.connectError = data.error;
+        return true;
+      }
+      return false;
+    },
+
+    async loadFormData() {
+      this.formDataLoading = true;
+      try {
+        const [sitesRes, appsRes] = await Promise.all([fetch('/api/sites'), fetch('/api/appdefs')]);
+        const sitesData = await sitesRes.json();
+        if (sitesRes.ok && sitesData.sites) {
+          this.sites = sitesData.sites;
+          this.sitesReady = true;
+        } else {
+          this.handleSessionExpired(sitesData);
+        }
+        const appsData = await appsRes.json();
+        if (appsRes.ok && appsData.appdefs) {
+          this.appdefs = appsData.appdefs;
+          this.appMap = {};
+          this.appdefs.forEach(a => { this.appMap[a.id] = a.name; });
+        } else {
+          this.handleSessionExpired(appsData);
+        }
+      } catch (e) {
+        this.searchError = 'Failed to load sites/applications: ' + e;
+      } finally {
+        this.formDataLoading = false;
+      }
+    },
+
+    async loadTopology() {
+      try {
+        const res = await fetch('/api/topology', { method: 'POST' });
+        const data = await res.json();
+        if (res.ok) {
+          this.topologyMap = data;
+        }
+      } catch (e) { /* topology is cosmetic only */ }
+    },
+
+    async loadPolicies() {
+      this.policiesLoading = true;
+      this.policiesError = '';
+      try {
+        const res = await fetch('/api/policies');
+        const data = await res.json();
+        if (!res.ok) {
+          this.policiesError = data.error || 'Failed to load policy names — showing raw IDs instead.';
+          return;
+        }
+        this.networkPolicyMap = data.network || {};
+        this.priorityPolicyMap = data.priority || {};
+        this.securityPolicyMap = data.security || {};
+      } catch (e) {
+        this.policiesError = 'Failed to load policy names — showing raw IDs instead.';
+      } finally {
+        this.policiesLoading = false;
+      }
+    },
+
+    get filteredSites() {
+      if (!this.siteSearch) return this.sites;
+      const q = this.siteSearch.toLowerCase();
+      return this.sites.filter(s => s.name.toLowerCase().includes(q));
+    },
+
+    toggleSite(siteId) {
+      const idx = this.selectedSites.indexOf(siteId);
+      if (idx === -1) this.selectedSites.push(siteId);
+      else this.selectedSites.splice(idx, 1);
+      if (this.selectedSites.length > 0) this.siteValidationError = false;
+    },
+
+    getSiteName(siteId) {
+      const site = this.sites.find(s => s.id === siteId);
+      return site ? site.name : siteId;
+    },
+
+    filteredApps() {
+      const q = this.appSearch.toLowerCase();
+      const matches = q ? this.appdefs.filter(a => a.name.toLowerCase().includes(q)) : this.appdefs;
+      return matches.slice(0, 100);
+    },
+
+    toggleApp(appId) {
+      const idx = this.selectedApps.indexOf(appId);
+      if (idx === -1) this.selectedApps.push(appId);
+      else this.selectedApps.splice(idx, 1);
+    },
+
+    getAppName(appId) {
+      if (!appId) return '-';
+      return this.appMap[appId] || appId;
+    },
+
+    getNetworkPolicyName(policyId) {
+      if (!policyId) return '-';
+      return this.networkPolicyMap[policyId] || policyId;
+    },
+
+    getPriorityPolicyName(policyId) {
+      if (!policyId) return '-';
+      return this.priorityPolicyMap[policyId] || policyId;
+    },
+
+    getSecurityPolicyName(flow) {
+      const rules = flow.security_policy_rules || [];
+      if (rules.length === 0) return '-';
+      const ruleId = rules[0].security_policy_rule_id;
+      if (!ruleId) return '-';
+      return this.securityPolicyMap[ruleId] || ruleId;
+    },
+
+    setLastMinutes(mins) {
+      const now = new Date();
+      const ago = new Date(now.getTime() - mins * 60 * 1000);
+      this.endTime = this.formatDateTimeLocal(now);
+      this.startTime = this.formatDateTimeLocal(ago);
+    },
+    setLastHour() {
+      const now = new Date();
+      const ago = new Date(now.getTime() - 60 * 60 * 1000);
+      this.endTime = this.formatDateTimeLocal(now);
+      this.startTime = this.formatDateTimeLocal(ago);
+    },
+    setLast24Hours() {
+      const now = new Date();
+      const ago = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      this.endTime = this.formatDateTimeLocal(now);
+      this.startTime = this.formatDateTimeLocal(ago);
+    },
+    formatDateTimeLocal(date) {
+      const pad = n => n.toString().padStart(2, '0');
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    },
+
+    async submitSearch() {
+      if (this.selectedSites.length === 0) {
+        this.siteValidationError = true;
+        return;
+      }
+      this.siteValidationError = false;
+      this.searching = true;
+      this.searchError = '';
+
+      const payload = {
+        site_ids: [...this.selectedSites],
+        start_time: new Date(this.startTime).toISOString(),
+        end_time: new Date(this.endTime).toISOString(),
+        app_ids: [...this.selectedApps],
+        ip_address: this.ipAddress,
+        ip_mode: this.ipMode,
+        page_size: parseInt(this.resultsPerPage)
+      };
+      this.lastSearchPayload = payload;
+      this.searchProgress = { completedIds: [], total: payload.site_ids.length };
+
+      try {
+        const res = await fetch('/api/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          if (!this.handleSessionExpired(data)) {
+            this.searchError = data.error || 'Search failed.';
+          }
+          this.searching = false;
+          return;
+        }
+
+        this.searchProgress.total = data.total;
+        await this.pollSearchJob(data.job_id);
+      } catch (e) {
+        this.searchError = 'Network error: ' + e;
+        this.searching = false;
+      }
+    },
+
+    async pollSearchJob(jobId) {
+      while (true) {
+        await new Promise(resolve => setTimeout(resolve, 600));
+        let data;
+        try {
+          const res = await fetch(`/api/search/status/${jobId}`);
+          data = await res.json();
+          if (!res.ok) {
+            this.searchError = data.error || 'Search failed.';
+            this.searching = false;
+            return;
+          }
+        } catch (e) {
+          this.searchError = 'Network error: ' + e;
+          this.searching = false;
+          return;
+        }
+
+        this.searchProgress = { completedIds: data.completed_site_ids || [], total: data.total };
+
+        if (data.done) {
+          this.flowsBySite = data.flows_by_site || {};
+          this.siteErrors = {};
+          for (const siteId in this.flowsBySite) {
+            const entry = this.flowsBySite[siteId];
+            if (entry && entry.error) this.siteErrors[siteId] = entry.error;
+            if (entry) entry.site_name = this.getSiteName(siteId);
+          }
+          this.selectedSiteIds = [...this.selectedSites];
+          this.searchPerformed = true;
+          this.activeTab = 'all';
+          this.initTabStates();
+          this.searching = false;
+          return;
+        }
+      }
+    },
+
+    initTabStates() {
+      this.tabStates = { all: this.createDefaultTabState() };
+      for (const siteId of this.selectedSiteIds) {
+        this.tabStates[siteId] = this.createDefaultTabState();
+      }
+    },
+    createDefaultTabState() {
+      return { sortField: 'flow_start_time_ms', sortDirection: 'desc', currentPage: 1, ipFilter: '', ipFilterMode: 'or' };
+    },
+    get currentTabState() {
+      if (!this.tabStates[this.activeTab]) this.tabStates[this.activeTab] = this.createDefaultTabState();
+      return this.tabStates[this.activeTab];
+    },
+    setActiveTab(tabId) { this.activeTab = tabId; },
+
+    getAllFlowsCount() {
+      let total = 0;
+      for (const siteId in this.flowsBySite) {
+        if (this.flowsBySite[siteId] && this.flowsBySite[siteId].flows) total += this.flowsBySite[siteId].flows.length;
+      }
+      return total;
+    },
+    getSiteFlowsCount(siteId) {
+      return (this.flowsBySite[siteId] && this.flowsBySite[siteId].flows) ? this.flowsBySite[siteId].flows.length : 0;
+    },
+    getSiteTabName(siteId) {
+      return (this.flowsBySite[siteId] && this.flowsBySite[siteId].site_name) ? this.flowsBySite[siteId].site_name : this.getSiteName(siteId);
+    },
+
+    get activeFlows() {
+      if (this.activeTab === 'all') {
+        const all = [];
+        for (const siteId in this.flowsBySite) {
+          const siteData = this.flowsBySite[siteId];
+          if (siteData && siteData.flows) {
+            for (const flow of siteData.flows) all.push({ ...flow, _site_id: siteId, _site_name: siteData.site_name });
+          }
+        }
+        return all;
+      }
+      const siteData = this.flowsBySite[this.activeTab];
+      if (siteData && siteData.flows) {
+        return siteData.flows.map(flow => ({ ...flow, _site_id: this.activeTab, _site_name: siteData.site_name }));
+      }
+      return [];
+    },
+
+    get truncatedSites() {
+      const out = [];
+      for (const siteId in this.flowsBySite) {
+        const d = this.flowsBySite[siteId];
+        if (d && d.total_count && d.flows && d.total_count > d.flows.length) {
+          out.push({ siteId, siteName: d.site_name || this.getSiteName(siteId), returned: d.flows.length, total: d.total_count });
+        }
+      }
+      return out;
+    },
+
+    get filteredFlows() {
+      let result = this.activeFlows;
+      const state = this.currentTabState;
+      if (state.ipFilter) {
+        const q = state.ipFilter.trim().toLowerCase();
+        const isFullIp = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(q);
+        result = result.filter(flow => {
+          const src = (flow.source_ip || '').toLowerCase();
+          const dst = (flow.destination_ip || '').toLowerCase();
+          const srcMatch = isFullIp ? src === q : src.includes(q);
+          const dstMatch = isFullIp ? dst === q : dst.includes(q);
+          if (state.ipFilterMode === 'src') return srcMatch;
+          if (state.ipFilterMode === 'dst') return dstMatch;
+          return srcMatch || dstMatch;
+        });
+      }
+      result = [...result].sort((a, b) => {
+        let aVal = a[state.sortField], bVal = b[state.sortField];
+        if (aVal === null || aVal === undefined) aVal = '';
+        if (bVal === null || bVal === undefined) bVal = '';
+        if (typeof aVal === 'string') aVal = aVal.toLowerCase();
+        if (typeof bVal === 'string') bVal = bVal.toLowerCase();
+        if (aVal < bVal) return state.sortDirection === 'asc' ? -1 : 1;
+        if (aVal > bVal) return state.sortDirection === 'asc' ? 1 : -1;
+        return 0;
+      });
+      return result;
+    },
+
+    get totalPages() { return Math.ceil(this.filteredFlows.length / this.resultsPerPage) || 1; },
+    get startIndex() { return (this.currentTabState.currentPage - 1) * this.resultsPerPage; },
+    get endIndex() { return this.startIndex + parseInt(this.resultsPerPage); },
+    get paginatedFlows() { return this.filteredFlows.slice(this.startIndex, this.endIndex); },
+
+    sortBy(field) {
+      const state = this.currentTabState;
+      if (state.sortField === field) state.sortDirection = state.sortDirection === 'asc' ? 'desc' : 'asc';
+      else { state.sortField = field; state.sortDirection = 'asc'; }
+      state.currentPage = 1;
+    },
+
+    copyToClipboard(text) {
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+      }
+    },
+
+    formatTime(ms) {
+      if (!ms) return '-';
+      const d = new Date(ms);
+      const pad = n => n.toString().padStart(2, '0');
+      return `${pad(d.getMonth()+1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    },
+    formatBytes(bytes) {
+      if (!bytes || bytes === 0) return '0 B';
+      const k = 1024, sizes = ['B','KB','MB','GB','TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    },
+    formatDirection(dir) {
+      if (!dir) return '-';
+      return dir.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    },
+    formatMs(v) {
+      return (v === null || v === undefined) ? '-' : Math.round(v) + 'ms';
+    },
+    getProtocolName(proto) {
+      const protocols = { 1:'ICMP', 6:'TCP', 17:'UDP', 47:'GRE', 50:'ESP', 51:'AH', 58:'ICMPv6', 89:'OSPF', 132:'SCTP' };
+      return protocols[proto] || proto || '-';
+    },
+    getProtocolClass(proto) {
+      if (proto === 6) return 'pill-blue';
+      if (proto === 17) return 'pill-green';
+      if (proto === 1 || proto === 58) return 'pill-yellow';
+      return 'pill-gray';
+    },
+    getPathName(pathId) {
+      if (!pathId) return null;
+      return this.topologyMap[pathId] || null;
+    },
+    getPathClass(pathId) {
+      const name = this.getPathName(pathId);
+      if (!name) return 'pill-gray';
+      if (name.includes('Direct Internet')) return 'pill-green';
+      if (name.includes('Prisma')) return 'pill-orange';
+      if (name.includes('→')) return 'pill-pink';
+      return 'pill-gray';
+    },
+    getSecurityActions(flow) {
+      if (flow.security_policy_rules && flow.security_policy_rules.length > 0) {
+        return [...new Set(flow.security_policy_rules.map(r => r.security_policy_rule_action).filter(Boolean))];
+      }
+      if (flow.sec_policy_actions && flow.sec_policy_actions.length > 0) return flow.sec_policy_actions;
+      return [];
+    },
+
+    downloadCSV() {
+      const flows = this.filteredFlows;
+      if (flows.length === 0) return;
+      const includesSite = this.activeTab === 'all';
+      const headers = [];
+      if (includesSite) headers.push('Site');
+      headers.push('Time','Source IP','User','Src Port','Dest IP','Dst Port','Protocol','App','Domain',
+        'Path Policy','QoS Policy','Security Policy','Direction','Path','RTT (avg ms)','SRT (avg ms)',
+        'Bytes C2S','Bytes S2C','Packets C2S','Packets S2C','Action','Security Action');
+      const escapeCSV = (val) => {
+        const str = String(val == null ? '' : val);
+        if (str.includes(',') || str.includes('"') || str.includes('\n')) return '"' + str.replace(/"/g, '""') + '"';
+        return str;
+      };
+      const rows = flows.map(flow => {
+        const cols = [];
+        if (includesSite) cols.push(flow._site_name || '');
+        cols.push(
+          this.formatTime(flow.flow_start_time_ms), flow.source_ip || '', flow.user_name || 'unknown', flow.source_port || '',
+          flow.destination_ip || '', flow.destination_port || '', this.getProtocolName(flow.protocol), this.getAppName(flow.app_id),
+          flow.unknown_domain || '',
+          this.getNetworkPolicyName(flow.network_policy_id), this.getPriorityPolicyName(flow.priority_policy_id), this.getSecurityPolicyName(flow),
+          this.formatDirection(flow.flow_direction), this.getPathName(flow.path_id) || flow.path_type || '',
+          flow.average_rtt != null ? Math.round(flow.average_rtt) : '', flow.average_srt != null ? Math.round(flow.average_srt) : '',
+          flow.bytes_c2s || 0, flow.bytes_s2c || 0,
+          flow.packets_c2s || 0, flow.packets_s2c || 0, flow.flow_action || '', this.getSecurityActions(flow).join(', ')
+        );
+        return cols.map(escapeCSV).join(',');
+      });
+      const csv = headers.map(escapeCSV).join(',') + '\n' + rows.join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const now = new Date();
+      const pad = n => n.toString().padStart(2, '0');
+      const ts = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+      const tabLabel = this.activeTab === 'all' ? 'all' : this.getSiteTabName(this.activeTab).replace(/[^a-zA-Z0-9_-]/g, '_');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `flows-${tabLabel}-${ts}.csv`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    },
+
+    showApiQuery() {
+      const payload = {
+        start_time: this.lastSearchPayload.start_time || '',
+        end_time: this.lastSearchPayload.end_time || '',
+        debug_level: 'all',
+        page_size: parseInt(this.resultsPerPage) || 100,
+        dest_page: 1,
+        view: { summary: false },
+        filter: {}
+      };
+      payload.filter.site = this.activeTab !== 'all' ? [this.activeTab] : [...this.selectedSiteIds];
+      if (this.lastSearchPayload.app_ids && this.lastSearchPayload.app_ids.length > 0) {
+        payload.filter.app = [...this.lastSearchPayload.app_ids];
+      }
+      if (this.lastSearchPayload.ip_address) {
+        payload.filter.flow = {};
+        if (this.lastSearchPayload.ip_mode === 'dest') payload.filter.flow.destination_ip = [this.lastSearchPayload.ip_address];
+        else payload.filter.flow.source_ip = [this.lastSearchPayload.ip_address];
+      }
+      this.apiQueryJson = JSON.stringify(payload, null, 2);
+      this.apiQueryModal = true;
+    },
+
+    downloadApiQueryJson() {
+      const blob = new Blob([this.apiQueryJson], { type: 'application/json' });
+      const now = new Date();
+      const pad = n => n.toString().padStart(2, '0');
+      const ts = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `api-query-${ts}.json`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    }
+  };
+}
+</script>
+</body>
+</html>

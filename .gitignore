@@ -1,0 +1,4 @@
+prismasase_settings.py
+.venv/
+__pycache__/
+*.pyc
