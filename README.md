@@ -16,6 +16,7 @@ A standalone Flask tool for searching Prisma SD-WAN flow records across multiple
 - Policy name resolution — Path (network), QoS (priority), and Security policy names shown per flow, not raw IDs
 - CSV export and a raw API-query-payload viewer (copy/download) for debugging
 - Two ways to connect: paste credentials per session (nothing saved), or a persistent "Quick Connect" via a credentials file you manage yourself
+- Displays the detected domain (If present) underneath the app-id and can be directly copied via a link that appears to the right of the (www.sample.com) domain display.
 
 ---
 
