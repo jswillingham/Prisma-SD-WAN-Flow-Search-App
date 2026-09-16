@@ -70,6 +70,14 @@ chmod 600 prismasase_settings.py
 
 ---
 
+## Screenshots
+
+<img width="1917" height="897" alt="image" src="https://github.com/user-attachments/assets/edf34dce-9cfd-4b73-8f94-10a2e4c804c8" />
+<img width="1907" height="904" alt="image" src="https://github.com/user-attachments/assets/77c75b92-78cc-4810-9f3a-c1186fd8fd75" />
+
+
+---
+
 ## Known gaps / not yet built
 
 - No persistent named tenant profiles beyond the single optional `prismasase_settings.py` — adding that would need a real auth layer first, since this app has no login system of its own.
