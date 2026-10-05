@@ -71,6 +71,7 @@
   @keyframes spin { to { transform: rotate(360deg); } }
 
   .progress-panel { margin-top: 12px; }
+  .search-estimate { margin-left: 12px; font-size: 12px; color: #6b7280; }
   .progress-summary { font-size: 12px; color: #6b7280; margin-bottom: 6px; }
   .progress-chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .progress-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px;
@@ -306,7 +307,7 @@
                 <button type="button" class="quick-btn" @click="setLastMinutes(5)">5m</button>
                 <button type="button" class="quick-btn" @click="setLastMinutes(15)">15m</button>
                 <button type="button" class="quick-btn" @click="setLastHour()">1h</button>
-                <button type="button" class="quick-btn" @click="setLast24Hours()">24h</button>
+                <button type="button" class="quick-btn" @click="setLastMinutes(240)">4h</button>
               </label>
               <div style="display:flex;align-items:center;gap:8px">
                 <input type="datetime-local" x-model="startTime" required>
@@ -390,10 +391,12 @@
               <span x-show="searching" class="spinner"></span>
               <span x-text="searching ? 'Searching…' : 'Search Flows'"></span>
             </button>
+            <span class="search-estimate" x-show="!searching && searchEstimate" x-text="searchEstimate"></span>
 
             <div class="progress-panel" x-show="searchProgress.total > 0" x-cloak>
               <div class="progress-summary">
-                <span x-text="searchProgress.completedIds.length"></span> of <span x-text="searchProgress.total"></span> sites complete
+                <span x-text="searchProgress.completedQueries"></span> of <span x-text="searchProgress.totalQueries"></span> queries complete
+                (<span x-text="searchProgress.completedIds.length"></span> of <span x-text="searchProgress.total"></span> sites)
               </div>
               <div class="progress-chips">
                 <template x-for="siteId in selectedSites" :key="siteId">
@@ -451,9 +454,9 @@
 
               <template x-if="truncatedSites.length > 0">
                 <div class="warn-banner" style="margin:0;border-radius:0;border-left:none;border-right:none">
-                  Results truncated:
+                  Results may be truncated — these sites hit the <span x-text="lastSearchPayload.page_size"></span>-flow limit in some hourly windows (raise Results or narrow the search):
                   <template x-for="(info, idx) in truncatedSites" :key="info.siteId">
-                    <span><span x-show="idx > 0">, </span><strong x-text="info.siteName"></strong> showing <span x-text="info.returned"></span> of <span x-text="info.total"></span></span>
+                    <span><span x-show="idx > 0">, </span><strong x-text="info.siteName"></strong> (<span x-text="info.windows"></span> of <span x-text="searchWindows.length"></span>)</span>
                   </template>
                 </div>
               </template>
@@ -627,7 +630,8 @@ function flowSearch() {
     resultsPerPage: 100,
 
     searching: false, searchError: '', searchPerformed: false,
-    searchProgress: { completedIds: [], total: 0 },
+    searchProgress: { completedIds: [], total: 0, completedQueries: 0, totalQueries: 0 },
+    searchWindows: [],
     flowsBySite: {}, siteErrors: {}, selectedSiteIds: [],
     activeTab: 'all', tabStates: {},
 
@@ -834,15 +838,28 @@ function flowSearch() {
       this.endTime = this.formatDateTimeLocal(now);
       this.startTime = this.formatDateTimeLocal(ago);
     },
-    setLast24Hours() {
-      const now = new Date();
-      const ago = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-      this.endTime = this.formatDateTimeLocal(now);
-      this.startTime = this.formatDateTimeLocal(ago);
-    },
     formatDateTimeLocal(date) {
       const pad = n => n.toString().padStart(2, '0');
       return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    },
+
+    get timeRangeError() {
+      const ms = new Date(this.endTime) - new Date(this.startTime);
+      if (isNaN(ms)) return 'Start and end time are required.';
+      if (ms <= 0) return 'End time must be after start time.';
+      if (ms > 4 * 60 * 60 * 1000) return 'Time range is limited to 4 hours.';
+      return '';
+    },
+
+    // The API only honours 1h windows, so the server runs one query per site per
+    // hour, 2 at a time, ~3.5s effective each (measured live).
+    get searchEstimate() {
+      if (this.selectedSites.length === 0 || this.timeRangeError) return '';
+      const hours = Math.ceil((new Date(this.endTime) - new Date(this.startTime)) / (60 * 60 * 1000));
+      const queries = this.selectedSites.length * hours;
+      const secs = Math.max(5, Math.round(queries * 3.5));
+      const time = secs < 90 ? `~${secs}s` : `~${Math.round(secs / 60)} min`;
+      return `${this.selectedSites.length} site${this.selectedSites.length === 1 ? '' : 's'} × ${hours}h = ${queries} quer${queries === 1 ? 'y' : 'ies'}, ${time}`;
     },
 
     async submitSearch() {
@@ -851,6 +868,11 @@ function flowSearch() {
         return;
       }
       this.siteValidationError = false;
+      const rangeError = this.timeRangeError;
+      if (rangeError) {
+        this.searchError = rangeError;
+        return;
+      }
       this.searching = true;
       this.searchError = '';
 
@@ -864,7 +886,7 @@ function flowSearch() {
         page_size: parseInt(this.resultsPerPage)
       };
       this.lastSearchPayload = payload;
-      this.searchProgress = { completedIds: [], total: payload.site_ids.length };
+      this.searchProgress = { completedIds: [], total: payload.site_ids.length, completedQueries: 0, totalQueries: 0 };
 
       try {
         const res = await fetch('/api/search', {
@@ -882,6 +904,8 @@ function flowSearch() {
         }
 
         this.searchProgress.total = data.total;
+        this.searchProgress.totalQueries = data.total_queries;
+        this.searchWindows = data.windows || [];
         await this.pollSearchJob(data.job_id);
       } catch (e) {
         this.searchError = 'Network error: ' + e;
@@ -907,7 +931,10 @@ function flowSearch() {
           return;
         }
 
-        this.searchProgress = { completedIds: data.completed_site_ids || [], total: data.total };
+        this.searchProgress = {
+          completedIds: data.completed_site_ids || [], total: data.total,
+          completedQueries: data.completed_queries || 0, totalQueries: data.total_queries || 0
+        };
 
         if (data.done) {
           this.flowsBySite = data.flows_by_site || {};
@@ -978,8 +1005,8 @@ function flowSearch() {
       const out = [];
       for (const siteId in this.flowsBySite) {
         const d = this.flowsBySite[siteId];
-        if (d && d.total_count && d.flows && d.total_count > d.flows.length) {
-          out.push({ siteId, siteName: d.site_name || this.getSiteName(siteId), returned: d.flows.length, total: d.total_count });
+        if (d && d.truncated_windows && d.truncated_windows.length > 0) {
+          out.push({ siteId, siteName: d.site_name || this.getSiteName(siteId), windows: d.truncated_windows.length });
         }
       }
       return out;
@@ -1129,8 +1156,6 @@ function flowSearch() {
 
     showApiQuery() {
       const payload = {
-        start_time: this.lastSearchPayload.start_time || '',
-        end_time: this.lastSearchPayload.end_time || '',
         debug_level: 'all',
         page_size: parseInt(this.resultsPerPage) || 100,
         dest_page: 1,
@@ -1146,7 +1171,9 @@ function flowSearch() {
         if (this.lastSearchPayload.ip_mode === 'dest') payload.filter.flow.destination_ip = [this.lastSearchPayload.ip_address];
         else payload.filter.flow.source_ip = [this.lastSearchPayload.ip_address];
       }
-      this.apiQueryJson = JSON.stringify(payload, null, 2);
+      // The server sends one request per hourly window (the API clamps longer ranges).
+      const payloads = this.searchWindows.map(([start_time, end_time]) => ({ start_time, end_time, ...payload }));
+      this.apiQueryJson = JSON.stringify(payloads.length === 1 ? payloads[0] : payloads, null, 2);
       this.apiQueryModal = true;
     },
 

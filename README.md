@@ -10,7 +10,7 @@ A standalone Flask tool for searching Prisma SD-WAN flow records across multiple
 
 - Search flows across multiple sites in parallel, with live per-site progress
 - Site / application multi-select with search
-- IP source/destination filter, app filter, time range with quick-select buttons
+- IP source/destination filter, app filter, time range up to 4 hours with quick-select buttons
 - Results: sortable columns, per-site tabs, pagination, in-results IP filter
 - Path name resolution (not raw path IDs) for anynet, servicelink, and internet-stub links
 - Policy name resolution — Path (network), QoS (priority), and Security policy names shown per flow, not raw IDs
@@ -66,6 +66,7 @@ chmod 600 prismasase_settings.py
 - Flow search uses a job/poll pattern (`POST /api/search` → `GET /api/search/status/<job_id>`) so the UI can show real per-site progress instead of one long blocking request.
 - Rate-limit handling: Prisma's flow monitor API allows ~2 concurrent requests; searches use a semaphore of 2 with a 300ms stagger, plus the SDK's built-in retry/backoff on 429/502/503/504.
 - `monitor_flows` is pinned to API version `v3.10`, not the SDK's default `v3.13`.
+- `monitor_flows` silently clamps any window longer than 1 hour to its final hour, so searches are split into hourly windows (one query per site per hour) and the range is capped at 4 hours. Each query takes ~8s and only 2 run concurrently (~3.5s effective), so the form shows a query count/time estimate. A window that returns a full page (`page_size`, max 1000) is flagged as possibly truncated.
 - `SECRET_KEY` defaults to a random value generated at process start — every restart invalidates active sessions. That's fine for this tool's single-user scope; set the `SECRET_KEY` env var if you ever need sessions to survive a restart.
 
 ---

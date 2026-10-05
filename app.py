@@ -24,6 +24,7 @@ import secrets
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta, timezone
 
 import prisma_sase
 from flask import Flask, jsonify, render_template, request, session
@@ -308,10 +309,65 @@ def api_topology():
         return jsonify({"error": str(e)}), 502
 
 
-def _run_search_job(job_id, api, site_ids, start_time, end_time, app_ids, ip_address, ip_mode, page_size):
+# monitor_flows silently clamps any window longer than 1h to its final hour
+# (verified live, regardless of result count or view.summary), so longer ranges
+# are split into hourly windows and queried separately. Each query takes ~8s and
+# only 2 can run concurrently, so the total range is capped.
+_WINDOW = timedelta(hours=1)
+_MAX_RANGE = timedelta(hours=4)
+_MAX_PAGE_SIZE = 1000  # API rejects page_size > 1000 with SCHEMA_MISMATCH
+
+
+def _parse_iso(value):
+    dt = datetime.fromisoformat(value)
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _format_iso(dt):
+    return dt.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def _split_windows(start, end):
+    windows = []
+    cursor = start
+    while cursor < end:
+        window_end = min(cursor + _WINDOW, end)
+        windows.append((_format_iso(cursor), _format_iso(window_end)))
+        cursor = window_end
+    return windows
+
+
+def _flow_key(flow):
+    # A long-lived flow shows up in every hourly window it overlaps.
+    return (flow.get("flow_id"), flow.get("flow_start_time_ms"), flow.get("source_ip"),
+            flow.get("source_port"), flow.get("destination_ip"), flow.get("destination_port"))
+
+
+def _merge_site_windows(window_results, windows, page_size):
+    """Combine a site's per-window results into one, newest window first to
+    match the API's newest-first ordering within a window."""
+    merged, errors, truncated = {}, [], []
+    for idx in reversed(range(len(windows))):
+        res = window_results[idx]
+        if res["error"]:
+            errors.append(f"{windows[idx][0]}: {res['error']}")
+            continue
+        if len(res["flows"]) >= page_size:
+            truncated.append(windows[idx][0])
+        for flow in res["flows"]:
+            merged.setdefault(_flow_key(flow), flow)
+    return {
+        "flows": list(merged.values()),
+        "error": "; ".join(errors) if errors else None,
+        "truncated_windows": sorted(truncated),
+    }
+
+
+def _run_search_job(job_id, api, site_ids, windows, app_ids, ip_address, ip_mode, page_size):
     semaphore = threading.Semaphore(2)
 
-    def search_one(site_id):
+    def search_one(site_id, window_idx):
+        start_time, end_time = windows[window_idx]
         filter_payload = {"site": [site_id]}
         if app_ids:
             filter_payload["app"] = app_ids
@@ -341,26 +397,29 @@ def _run_search_job(job_id, api, site_ids, start_time, end_time, app_ids, ip_add
                 # v3.10 allows well over a year. Verified live — don't bump without re-checking.
                 resp = api.post.monitor_flows(payload, api_version="v3.10")
                 if not resp.sdk_status:
-                    result = {"flows": [], "total_count": 0, "error": str(resp.sdk_content)}
+                    result = {"flows": [], "error": str(resp.sdk_content)}
                 else:
                     flows_data = (resp.sdk_content.get("flows") or {})
-                    result = {
-                        "flows": flows_data.get("items") or [],
-                        "total_count": flows_data.get("total_count") or 0,
-                        "error": None,
-                    }
+                    result = {"flows": flows_data.get("items") or [], "error": None}
             except Exception as e:
-                result = {"flows": [], "total_count": 0, "error": str(e)}
+                result = {"flows": [], "error": str(e)}
 
         with _search_jobs_lock:
             job = _search_jobs.get(job_id)
             if job is None:
                 return  # job was pruned/abandoned; nothing to update
-            job["flows_by_site"][site_id] = result
-            job["completed_site_ids"].append(site_id)
+            job["completed_queries"] += 1
+            site_windows = job["pending_windows"].setdefault(site_id, {})
+            site_windows[window_idx] = result
+            if len(site_windows) == len(windows):
+                job["flows_by_site"][site_id] = _merge_site_windows(job["pending_windows"].pop(site_id), windows, page_size)
+                job["completed_site_ids"].append(site_id)
 
+    # Site-major order so each site finishes (and its progress chip turns green)
+    # as early as possible rather than every site finishing together at the end.
+    units = [(site_id, idx) for site_id in site_ids for idx in range(len(windows))]
     with ThreadPoolExecutor(max_workers=5) as executor:
-        list(executor.map(search_one, site_ids))
+        list(executor.map(lambda unit: search_one(*unit), units))
 
     with _search_jobs_lock:
         job = _search_jobs.get(job_id)
@@ -381,12 +440,23 @@ def api_search():
     app_ids    = data.get("app_ids", [])
     ip_address = data.get("ip_address", "").strip()
     ip_mode    = data.get("ip_mode", "source")
-    page_size  = int(data.get("page_size", 100))
+    page_size  = min(int(data.get("page_size", 100)), _MAX_PAGE_SIZE)
 
     if not site_ids:
         return jsonify({"error": "No sites selected."}), 400
     if not start_time or not end_time:
         return jsonify({"error": "Start and end time are required."}), 400
+    try:
+        start, end = _parse_iso(start_time), _parse_iso(end_time)
+    except ValueError:
+        return jsonify({"error": "Invalid start or end time."}), 400
+    if end <= start:
+        return jsonify({"error": "End time must be after start time."}), 400
+    if end - start > _MAX_RANGE:
+        return jsonify({"error": "Time range is limited to 4 hours."}), 400
+
+    windows = _split_windows(start, end)
+    total_queries = len(site_ids) * len(windows)
 
     _prune_search_jobs()
 
@@ -394,7 +464,10 @@ def api_search():
     with _search_jobs_lock:
         _search_jobs[job_id] = {
             "total": len(site_ids),
+            "total_queries": total_queries,
+            "completed_queries": 0,
             "completed_site_ids": [],
+            "pending_windows": {},
             "flows_by_site": {},
             "done": False,
             "created_at": time.time(),
@@ -402,12 +475,12 @@ def api_search():
 
     thread = threading.Thread(
         target=_run_search_job,
-        args=(job_id, api, site_ids, start_time, end_time, app_ids, ip_address, ip_mode, page_size),
+        args=(job_id, api, site_ids, windows, app_ids, ip_address, ip_mode, page_size),
         daemon=True,
     )
     thread.start()
 
-    return jsonify({"job_id": job_id, "total": len(site_ids)})
+    return jsonify({"job_id": job_id, "total": len(site_ids), "total_queries": total_queries, "windows": windows})
 
 
 @app.route("/api/search/status/<job_id>")
@@ -419,6 +492,8 @@ def api_search_status(job_id):
         done = job["done"]
         response = {
             "total": job["total"],
+            "total_queries": job["total_queries"],
+            "completed_queries": job["completed_queries"],
             "completed_site_ids": list(job["completed_site_ids"]),
             "done": done,
         }
