@@ -18,7 +18,9 @@ Open http://localhost:5050
 
 import contextlib
 import io
+import ipaddress
 import os
+import re
 import runpy
 import secrets
 import threading
@@ -337,6 +339,28 @@ def _split_windows(start, end):
     return windows
 
 
+_MAX_IPS = 10  # API rejects >10 entries per source_ip/destination_ip list (SCHEMA_MISMATCH)
+
+
+def _parse_ip_list(raw):
+    """Split a comma/space/newline-separated list of IPs and CIDRs. The API ORs
+    multiple values within a source_ip/destination_ip filter, ANDs the two
+    fields together, and accepts CIDRs (all verified live).
+    Returns (normalized_list, invalid_entries)."""
+    ips, invalid = [], []
+    for entry in re.split(r"[\s,;]+", raw.strip()):
+        if not entry:
+            continue
+        try:
+            value = str(ipaddress.ip_network(entry, strict=False)) if "/" in entry else str(ipaddress.ip_address(entry))
+        except ValueError:
+            invalid.append(entry)
+            continue
+        if value not in ips:
+            ips.append(value)
+    return ips, invalid
+
+
 def _flow_key(flow):
     # A long-lived flow shows up in every hourly window it overlaps.
     return (flow.get("flow_id"), flow.get("flow_start_time_ms"), flow.get("source_ip"),
@@ -363,7 +387,7 @@ def _merge_site_windows(window_results, windows, page_size):
     }
 
 
-def _run_search_job(job_id, api, site_ids, windows, app_ids, ip_address, ip_mode, page_size):
+def _run_search_job(job_id, api, site_ids, windows, app_ids, flow_filter, page_size):
     semaphore = threading.Semaphore(2)
 
     def search_one(site_id, window_idx):
@@ -371,12 +395,7 @@ def _run_search_job(job_id, api, site_ids, windows, app_ids, ip_address, ip_mode
         filter_payload = {"site": [site_id]}
         if app_ids:
             filter_payload["app"] = app_ids
-        if ip_address:
-            flow_filter = {}
-            if ip_mode == "dest":
-                flow_filter["destination_ip"] = [ip_address]
-            else:
-                flow_filter["source_ip"] = [ip_address]
+        if flow_filter:
             filter_payload["flow"] = flow_filter
 
         payload = {
@@ -438,8 +457,8 @@ def api_search():
     start_time = data.get("start_time", "")
     end_time   = data.get("end_time", "")
     app_ids    = data.get("app_ids", [])
-    ip_address = data.get("ip_address", "").strip()
-    ip_mode    = data.get("ip_mode", "source")
+    source_raw = data.get("source_ips", "")
+    dest_raw   = data.get("dest_ips", "")
     page_size  = min(int(data.get("page_size", 100)), _MAX_PAGE_SIZE)
 
     if not site_ids:
@@ -454,6 +473,16 @@ def api_search():
         return jsonify({"error": "End time must be after start time."}), 400
     if end - start > _MAX_RANGE:
         return jsonify({"error": "Time range is limited to 4 hours."}), 400
+
+    flow_filter = {}
+    for field, label, raw in (("source_ip", "Source", source_raw), ("destination_ip", "Destination", dest_raw)):
+        ips, invalid = _parse_ip_list(raw)
+        if invalid:
+            return jsonify({"error": f"Invalid {label.lower()} IP address or CIDR: " + ", ".join(invalid)}), 400
+        if len(ips) > _MAX_IPS:
+            return jsonify({"error": f"{label}: up to {_MAX_IPS} IP addresses/CIDRs per search."}), 400
+        if ips:
+            flow_filter[field] = ips
 
     windows = _split_windows(start, end)
     total_queries = len(site_ids) * len(windows)
@@ -475,12 +504,13 @@ def api_search():
 
     thread = threading.Thread(
         target=_run_search_job,
-        args=(job_id, api, site_ids, windows, app_ids, ip_address, ip_mode, page_size),
+        args=(job_id, api, site_ids, windows, app_ids, flow_filter, page_size),
         daemon=True,
     )
     thread.start()
 
-    return jsonify({"job_id": job_id, "total": len(site_ids), "total_queries": total_queries, "windows": windows})
+    return jsonify({"job_id": job_id, "total": len(site_ids), "total_queries": total_queries, "windows": windows,
+                    "flow_filter": flow_filter})
 
 
 @app.route("/api/search/status/<job_id>")

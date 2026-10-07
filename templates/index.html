@@ -47,6 +47,26 @@
   .grid { display: grid; gap: 16px; }
   .grid-2 { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
   .grid-3 { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .filter-row { display: grid; gap: 8px 16px; align-items: start; margin-top: 16px;
+                grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) minmax(0, 1fr) 100px; }
+  .filter-row .ip-swap-cell { margin: 0 -8px; }
+  .ip-swap { flex-shrink: 0; padding: 8px 12px; font-size: 13px; border: 1px solid #d1d5db; border-radius: 6px; background: #fff;
+             color: #4b5563; cursor: pointer; }
+  .ip-swap:hover { background: #f3f4f6; color: #004C97; }
+  .ip-swap-v { display: none; }
+  .field-hint { margin: 6px 0 0; font-size: 12px; color: #6b7280; }
+  @media (max-width: 900px) {
+    .filter-row { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+    .filter-apps { grid-column: 1 / 3; }
+  }
+  @media (max-width: 640px) {
+    .filter-row { grid-template-columns: minmax(0, 1fr); }
+    .filter-apps { grid-column: auto; }
+    .ip-swap-cell { justify-self: center; margin: 0; }
+    .ip-swap-cell label { display: none; }
+    .ip-swap-h { display: none; }
+    .ip-swap-v { display: inline; }
+  }
 
   label { display: block; font-size: 13px; font-weight: 500; color: #374151; margin-bottom: 4px; }
   input[type=text], input[type=password], input[type=datetime-local], select {
@@ -317,21 +337,25 @@
             </div>
           </div>
 
-          <div class="grid grid-3">
-            <!-- IP Filter -->
+          <!-- Filters: source → destination, application, page size -->
+          <div class="filter-row">
             <div>
-              <label>IP Address (optional)</label>
-              <div style="display:flex;gap:8px">
-                <input type="text" x-model="ipAddress" placeholder="e.g., 192.168.1.100" style="flex:1">
-                <select x-model="ipMode" style="width:auto">
-                  <option value="source">Source</option>
-                  <option value="dest">Destination</option>
-                </select>
-              </div>
+              <label for="source-ips">Source IPs / CIDRs</label>
+              <input id="source-ips" type="text" x-model="sourceIps" placeholder="e.g., 10.1.1.5, 10.1.2.0/24">
+            </div>
+            <div class="ip-swap-cell">
+              <label aria-hidden="true">&nbsp;</label>
+              <button type="button" class="ip-swap" @click="swapIps()" title="Swap source and destination" aria-label="Swap source and destination">
+                <span class="ip-swap-h">⇄</span><span class="ip-swap-v">⇅</span>
+              </button>
+            </div>
+            <div>
+              <label for="dest-ips">Destination IPs / CIDRs</label>
+              <input id="dest-ips" type="text" x-model="destIps" placeholder="e.g., 8.8.8.8, 4.2.2.2">
             </div>
 
             <!-- Apps -->
-            <div class="dropdown">
+            <div class="dropdown filter-apps">
               <label>Application (optional)</label>
               <div class="dropdown-trigger" :class="formDataLoading ? 'loading' : ''"
                    @click="if (!formDataLoading) appDropdownOpen = !appDropdownOpen">
@@ -373,7 +397,7 @@
             </div>
 
             <!-- Page Size -->
-            <div>
+            <div class="filter-results">
               <label>Results</label>
               <select x-model="resultsPerPage">
                 <option value="25">25</option>
@@ -385,6 +409,7 @@
               </select>
             </div>
           </div>
+          <p class="field-hint">IP filters are optional. Up to 10 each, comma or space separated. Both filled = flows from source to destination.</p>
 
           <div style="margin-top:16px">
             <button type="button" class="btn btn-primary" @click="submitSearch()" :disabled="searching">
@@ -435,31 +460,23 @@
                     </div>
                   </template>
                 </div>
-                <span style="color:#6b7280;font-size:13px"><span x-text="filteredFlows.length"></span> flow<span x-show="filteredFlows.length !== 1">s</span></span>
+                <span style="color:#6b7280;font-size:13px"><span x-text="filteredFlows.length"></span> flow<span x-show="filteredFlows.length !== 1">s</span><span x-show="truncatedSites.length > 0" x-text="' · limited to ' + lastSearchPayload.page_size + ' per site-hour'"></span></span>
               </div>
 
               <div class="tab-strip" x-show="selectedSiteIds.length > 0">
                 <button type="button" @click="setActiveTab('all')" :class="activeTab === 'all' ? 'active' : ''">
                   Selected Sites
-                  <span class="badge" :class="activeTab === 'all' ? 'active' : ''" x-text="getAllFlowsCount()"></span>
+                  <span class="badge" :class="activeTab === 'all' ? 'active' : ''" x-text="getAllFlowsCount() + (truncatedSites.length ? '+' : '')"></span>
                 </button>
                 <template x-for="siteId in selectedSiteIds" :key="siteId">
                   <button type="button" @click="setActiveTab(siteId)" :class="activeTab === siteId ? 'active' : ''">
                     <span x-text="getSiteTabName(siteId)"></span>
                     <span class="badge" :class="activeTab === siteId ? 'active' : (siteErrors[siteId] ? 'error' : '')"
-                          x-text="siteErrors[siteId] ? '!' : getSiteFlowsCount(siteId)"></span>
+                          x-text="siteErrors[siteId] ? '!' : getSiteFlowsCount(siteId) + (isSiteTruncated(siteId) ? '+' : '')"
+                          :title="isSiteTruncated(siteId) ? 'Hit the ' + lastSearchPayload.page_size + '-flow limit in some hourly windows' : ''"></span>
                   </button>
                 </template>
               </div>
-
-              <template x-if="truncatedSites.length > 0">
-                <div class="warn-banner" style="margin:0;border-radius:0;border-left:none;border-right:none">
-                  Results may be truncated — these sites hit the <span x-text="lastSearchPayload.page_size"></span>-flow limit in some hourly windows (raise Results or narrow the search):
-                  <template x-for="(info, idx) in truncatedSites" :key="info.siteId">
-                    <span><span x-show="idx > 0">, </span><strong x-text="info.siteName"></strong> (<span x-text="info.windows"></span> of <span x-text="searchWindows.length"></span>)</span>
-                  </template>
-                </div>
-              </template>
 
               <div class="results-toolbar">
                 <div class="filter-group">
@@ -626,12 +643,12 @@ function flowSearch() {
     appSearch: '', appDropdownOpen: false, selectedApps: [],
 
     startTime: '', endTime: '',
-    ipAddress: '', ipMode: 'source',
+    sourceIps: '', destIps: '',
     resultsPerPage: 100,
 
     searching: false, searchError: '', searchPerformed: false,
     searchProgress: { completedIds: [], total: 0, completedQueries: 0, totalQueries: 0 },
-    searchWindows: [],
+    searchWindows: [], searchFlowFilter: {},
     flowsBySite: {}, siteErrors: {}, selectedSiteIds: [],
     activeTab: 'all', tabStates: {},
 
@@ -862,6 +879,10 @@ function flowSearch() {
       return `${this.selectedSites.length} site${this.selectedSites.length === 1 ? '' : 's'} × ${hours}h = ${queries} quer${queries === 1 ? 'y' : 'ies'}, ${time}`;
     },
 
+    swapIps() {
+      [this.sourceIps, this.destIps] = [this.destIps, this.sourceIps];
+    },
+
     async submitSearch() {
       if (this.selectedSites.length === 0) {
         this.siteValidationError = true;
@@ -881,8 +902,8 @@ function flowSearch() {
         start_time: new Date(this.startTime).toISOString(),
         end_time: new Date(this.endTime).toISOString(),
         app_ids: [...this.selectedApps],
-        ip_address: this.ipAddress,
-        ip_mode: this.ipMode,
+        source_ips: this.sourceIps,
+        dest_ips: this.destIps,
         page_size: parseInt(this.resultsPerPage)
       };
       this.lastSearchPayload = payload;
@@ -906,6 +927,7 @@ function flowSearch() {
         this.searchProgress.total = data.total;
         this.searchProgress.totalQueries = data.total_queries;
         this.searchWindows = data.windows || [];
+        this.searchFlowFilter = data.flow_filter || {};
         await this.pollSearchJob(data.job_id);
       } catch (e) {
         this.searchError = 'Network error: ' + e;
@@ -999,6 +1021,11 @@ function flowSearch() {
         return siteData.flows.map(flow => ({ ...flow, _site_id: this.activeTab, _site_name: siteData.site_name }));
       }
       return [];
+    },
+
+    isSiteTruncated(siteId) {
+      const d = this.flowsBySite[siteId];
+      return !!(d && d.truncated_windows && d.truncated_windows.length);
     },
 
     get truncatedSites() {
@@ -1166,10 +1193,8 @@ function flowSearch() {
       if (this.lastSearchPayload.app_ids && this.lastSearchPayload.app_ids.length > 0) {
         payload.filter.app = [...this.lastSearchPayload.app_ids];
       }
-      if (this.lastSearchPayload.ip_address) {
-        payload.filter.flow = {};
-        if (this.lastSearchPayload.ip_mode === 'dest') payload.filter.flow.destination_ip = [this.lastSearchPayload.ip_address];
-        else payload.filter.flow.source_ip = [this.lastSearchPayload.ip_address];
+      if (Object.keys(this.searchFlowFilter).length > 0) {
+        payload.filter.flow = JSON.parse(JSON.stringify(this.searchFlowFilter));
       }
       // The server sends one request per hourly window (the API clamps longer ranges).
       const payloads = this.searchWindows.map(([start_time, end_time]) => ({ start_time, end_time, ...payload }));

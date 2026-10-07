@@ -10,7 +10,7 @@ A standalone Flask tool for searching Prisma SD-WAN flow records across multiple
 
 - Search flows across multiple sites in parallel, with live per-site progress
 - Site / application multi-select with search
-- IP source/destination filter, app filter, time range up to 4 hours with quick-select buttons
+- Source and destination IP filters (up to 10 IPs or CIDRs each, comma/space separated; entries within a field are OR'd, the two fields are AND'd), app filter, time range up to 4 hours with quick-select buttons
 - Results: sortable columns, per-site tabs, pagination, in-results IP filter
 - Path name resolution (not raw path IDs) for anynet, servicelink, and internet-stub links
 - Policy name resolution — Path (network), QoS (priority), and Security policy names shown per flow, not raw IDs
