@@ -74,7 +74,8 @@ chmod 600 prismasase_settings.py
 ## Screenshots
 
 <img width="1917" height="897" alt="image" src="https://github.com/user-attachments/assets/edf34dce-9cfd-4b73-8f94-10a2e4c804c8" />
-<img width="1907" height="904" alt="image" src="https://github.com/user-attachments/assets/77c75b92-78cc-4810-9f3a-c1186fd8fd75" />
+<img width="2090" height="1233" alt="image" src="https://github.com/user-attachments/assets/2686b571-6341-45ed-b642-2204592f020f" />
+
 
 
 ---
