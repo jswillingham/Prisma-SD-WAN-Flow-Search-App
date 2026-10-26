@@ -22,6 +22,13 @@ A standalone Flask tool for searching Prisma SD-WAN flow records across multiple
 
 ## Setup
 
+Clone the repository:
+
+```bash
+git clone https://github.com/jswillingham/Prisma-SD-WAN-Flow-Search-App.git
+cd Prisma-SD-WAN-Flow-Search-App
+```
+
 **With a virtual environment (recommended):**
 
 ```bash
