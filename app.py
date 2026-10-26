@@ -321,7 +321,8 @@ _MAX_PAGE_SIZE = 1000  # API rejects page_size > 1000 with SCHEMA_MISMATCH
 
 
 def _parse_iso(value):
-    dt = datetime.fromisoformat(value)
+    # fromisoformat() only accepts a trailing "Z" on Python 3.11+
+    dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
