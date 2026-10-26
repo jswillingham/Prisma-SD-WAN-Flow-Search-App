@@ -22,6 +22,8 @@ A standalone Flask tool for searching Prisma SD-WAN flow records across multiple
 
 ## Setup
 
+**Python version:** Python 3.11+ is recommended. Older versions may work, but if you run into issues, update to 3.11 or newer.
+
 Clone the repository:
 
 ```bash
